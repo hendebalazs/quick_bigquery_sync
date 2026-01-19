@@ -29,7 +29,10 @@ def import_expenses(request):
 
     # Data containers
     all_expenses = []
-    all_assignments = []
+    
+    # New containers for linking tables
+    all_expense_tags = []
+    all_assignment_tags = []
     
     # Reference data (using dicts to deduplicate by ID across pages)
     ref_currencies = {}
@@ -37,18 +40,16 @@ def import_expenses(request):
     ref_expense_types = {}
     ref_accounts = {}
 
-    page = 1
-    page_size = 200
+    # Initial Request
+    next_url = "https://api.quick.riport.co.hu/2/expenses?page_size=200"
+    page_count = 0
     
     try:
-        while True:
-            print(f"Fetching page {page}...")
-            params = {
-                "page": page,
-                "page_size": page_size
-            }
+        while next_url:
+            page_count += 1
+            print(f"Fetching page {page_count}... URL: {next_url}")
             
-            response = requests.get(base_url, headers=headers, params=params)
+            response = requests.get(next_url, headers=headers)
             response.raise_for_status()
             data = response.json()
             
@@ -57,9 +58,7 @@ def import_expenses(request):
             if isinstance(data, dict):
                  if 'results' in data and isinstance(data['results'], dict):
                      results_node = data['results']
-                 # Fallback for flat structure
                  elif 'expenses' in data: 
-                     # If format is flat {expenses: [], currencies: []}
                      results_node = data
             
             if results_node:
@@ -80,7 +79,6 @@ def import_expenses(request):
             if results_node and 'expenses' in results_node and isinstance(results_node['expenses'], list):
                 rows_on_page = results_node['expenses']
             elif isinstance(data, dict) and 'results' in data and isinstance(data['results'], list):
-                 # Old fallback
                  rows_on_page = data['results']
             
             # Process this page's expenses
@@ -101,13 +99,13 @@ def import_expenses(request):
                 all_expenses.append(expense)
 
             count = len(rows_on_page)
-            print(f"Page {page}: Fetched {count} expenses.")
+            print(f"Page {page_count}: Fetched {count} expenses.")
             
-            if count < page_size:
-                break
+            # Get next page URL
+            next_url = data.get('next') if isinstance(data, dict) else None
             
-            page += 1
-            if page > 1000:
+            # Safety break
+            if page_count > 1000:
                 print("Warning: Reached 1000 pages limit.")
                 break
 
