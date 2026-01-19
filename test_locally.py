@@ -50,13 +50,53 @@ def test_api_fetch():
                         val = results_node[key]
                         count = len(val) if isinstance(val, list) else 'Not a list'
                         print(f"Entity '{key}': Found {count} items.")
-                        if isinstance(val, list) and len(val) > 0:
+                if isinstance(val, list) and len(val) > 0:
                             print(f"  Sample {key}[0]: {json.dumps(val[0])[:200]}...")
 
+            # Flattening & ID Resolution (Ported from main.py for Test)
+            print("\nTesting Data Enrichment...")
+            
+            # Build Ref Maps
+            ref_currencies = {i['id']: i for i in (results_node.get('currencies') or []) if 'id' in i}
+            ref_tags = {i['id']: i for i in (results_node.get('tags') or []) if 'id' in i}
+            ref_expense_types = {i['id']: i for i in (results_node.get('expense_types') or []) if 'id' in i}
+            
+            def resolve_id(obj, field, ref_dict):
+                if field in obj and obj[field]:
+                    ref_id = obj[field]
+                    if ref_id in ref_dict:
+                        obj[field] = ref_dict[ref_id].get('name')
+            
+            def resolve_list(obj, field, ref_dict):
+                if field in obj and isinstance(obj[field], list):
+                    names = []
+                    for item in obj[field]:
+                        ref_id = item if not isinstance(item, dict) else item.get('id')
+                        names.append(ref_dict[ref_id].get('name') if ref_id in ref_dict else str(ref_id))
+                    obj[field] = ", ".join(names)
+
+            # Test on first expense
+            expenses = results_node.get('expenses', [])
+            if expenses:
+                exp = expenses[0].copy() # Work on copy
+                print("Original Expense Currency:", exp.get('currency'))
+                print("Original Expense Tags:", exp.get('simple_tags'))
+                
+                resolve_id(exp, 'currency', ref_currencies)
+                resolve_list(exp, 'simple_tags', ref_tags)
+                
+                print("Enriched Expense Currency:", exp.get('currency'))
+                print("Enriched Expense Tags:", exp.get('simple_tags'))
+                
+                if 'assignments' in exp and exp['assignments']:
+                    asn = exp['assignments'][0]
+                    print("Original Assignment Type:", asn.get('expense_type'))
+                    resolve_id(asn, 'expense_type', ref_expense_types)
+                    print("Enriched Assignment Type:", asn.get('expense_type'))
+            else:
+                print("No expenses to test enrichment on.")
+
             # Extract Expenses & Assignments check
-            expenses = []
-            if results_node and 'expenses' in results_node:
-                expenses = results_node['expenses']
             
             if expenses:
                 print(f"Found {len(expenses)} expenses.")

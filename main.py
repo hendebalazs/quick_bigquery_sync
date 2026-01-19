@@ -120,7 +120,59 @@ def import_expenses(request):
         print(f"API Fetch Error: {e}")
         return f"API Fetch Error: {e}", 500
 
-    # 2. Load to BigQuery (Multiple Tables)
+    # 2. Data Enrichment (Flattening & ID Resolution)
+    print("Enriching data (resolving IDs to names)...")
+    
+    def resolve_id(obj, field, ref_dict, target_field=None):
+        """Replaces ID in 'field' with name from 'ref_dict'. 
+           If target_field is set, writes to that instead of overwriting."""
+        if field in obj and obj[field] is not None:
+            ref_id = obj[field]
+            if ref_id in ref_dict:
+                obj[target_field or field] = ref_dict[ref_id].get('name')
+            else:
+                # Keep ID if name not found, or maybe convert to string?
+                # User asked to replace. If not found, keeping ID is safer info preservation.
+                pass
+    
+    def resolve_list(obj, field, ref_dict):
+        """Converts list of IDs to comma-separated string of names."""
+        if field in obj and isinstance(obj[field], list):
+            names = []
+            for item in obj[field]:
+                # Item could be ID (int) or dict?
+                # Based on sample simple_tags is list of ints.
+                # tags might be list of dicts or ints.
+                ref_id = item
+                if isinstance(item, dict) and 'id' in item:
+                    ref_id = item['id']
+                
+                if ref_id in ref_dict:
+                    names.append(ref_dict[ref_id].get('name'))
+                else:
+                    names.append(str(ref_id))
+            
+            # Flatten to string
+            obj[field] = ", ".join(names)
+
+    # Process Expenses
+    for exp in all_expenses:
+        resolve_id(exp, 'currency', ref_currencies)
+        resolve_id(exp, 'account', ref_accounts)
+        
+        # Merge tags and simple_tags if needed, or just resolve both
+        # Sample shows simple_tags has the IDs.
+        resolve_list(exp, 'tags', ref_tags)
+        resolve_list(exp, 'simple_tags', ref_tags) 
+        # If simple_tags is the main one, maybe copy to tags? 
+        # Let's keep both resolved.
+
+    # Process Assignments
+    for asn in all_assignments:
+        resolve_id(asn, 'expense_type', ref_expense_types)
+        resolve_list(asn, 'tags', ref_tags)
+
+    # 3. Load to BigQuery (Multiple Tables)
     try:
         client = bigquery.Client()
         dataset_ref = client.dataset(DATASET_ID)
@@ -142,15 +194,12 @@ def import_expenses(request):
             job.result()
             print(f"Success: Loaded {table_name}.")
 
-        # Load all tables
-        # User defined TABLE_ID for expenses, but we have multiple now. 
-        # We will use TABLE_ID for the main expenses table, and suffixes/names for others?
-        # Or just fixed names? User said "corresponding tables".
-        # Let's use fixed names typically, or derive from TABLE_ID.
-        # Default TABLE_ID is 'expenses'.
-        
+        # Load tables
         load_table(TABLE_ID, all_expenses)
-        load_table(f"{TABLE_ID}_assignments", all_assignments) # e.g. expenses_assignments
+        load_table(f"{TABLE_ID}_assignments", all_assignments)
+        
+        # Loading Ref tables is now optional if all IDs are replaced, 
+        # but good for completeness/audit.
         load_table('currencies', list(ref_currencies.values()))
         load_table('tags', list(ref_tags.values()))
         load_table('expense_types', list(ref_expense_types.values()))
