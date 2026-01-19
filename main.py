@@ -120,57 +120,77 @@ def import_expenses(request):
         print(f"API Fetch Error: {e}")
         return f"API Fetch Error: {e}", 500
 
-    # 2. Data Enrichment (Flattening & ID Resolution)
+    # 2. Data Enrichment (ID Resolution Only - NO Tag Flattening)
     print("Enriching data (resolving IDs to names)...")
     
+    # New containers for linking tables
+    all_expense_tags = []
+    all_expense_type_tags = []
+    all_assignment_tags = []
+
     def resolve_id(obj, field, ref_dict, target_field=None):
-        """Replaces ID in 'field' with name from 'ref_dict'. 
-           If target_field is set, writes to that instead of overwriting."""
+        """Replaces ID in 'field' with name from 'ref_dict'."""
         if field in obj and obj[field] is not None:
             ref_id = obj[field]
             if ref_id in ref_dict:
                 obj[target_field or field] = ref_dict[ref_id].get('name')
-            else:
-                # Keep ID if name not found, or maybe convert to string?
-                # User asked to replace. If not found, keeping ID is safer info preservation.
-                pass
-    
-    def resolve_list(obj, field, ref_dict):
-        """Converts list of IDs to comma-separated string of names."""
-        if field in obj and isinstance(obj[field], list):
-            names = []
-            for item in obj[field]:
-                # Item could be ID (int) or dict?
-                # Based on sample simple_tags is list of ints.
-                # tags might be list of dicts or ints.
-                ref_id = item
-                if isinstance(item, dict) and 'id' in item:
-                    ref_id = item['id']
-                
-                if ref_id in ref_dict:
-                    names.append(ref_dict[ref_id].get('name'))
-                else:
-                    names.append(str(ref_id))
-            
-            # Flatten to string
-            obj[field] = ", ".join(names)
+
+    # Helper to extract tags to a linking table
+    def extract_tags(source_obj, source_id_field, target_list, id_field_name):
+        # Expenses have 'tags' and 'simple_tags'. Assignments have 'tags'.
+        # We need to consolidate.
+        tags_found = set()
+        
+        for field in ['tags', 'simple_tags']:
+            if field in source_obj and isinstance(source_obj[field], list):
+                for item in source_obj[field]:
+                    # item could be ID or dict
+                    tag_id = item
+                    if isinstance(item, dict) and 'id' in item:
+                        tag_id = item['id']
+                    
+                    if tag_id not in tags_found and source_obj.get(source_id_field):
+                         tags_found.add(tag_id)
+                         target_list.append({
+                             id_field_name: source_obj[source_id_field],
+                             'tag_id': tag_id
+                         })
+        
+        # Cleanup original tag fields from source to keep it clean? 
+        # User said "tags should not be flattened". Keeping them as arrays of IDs or removing?
+        # Usually if we have a linking table, we remove the array from the main table or keep it as is.
+        # Let's keep the original arrays (as list of integers) to be safe, but NOT flatten them to strings.
+        # But we must ensure bigquery generic loader handles list of ints? Yes (REPEATED INTEGER).
+        # We should ensure they are lists of simple IDs for consistency.
+        for field in ['tags', 'simple_tags']:
+            if field in source_obj and isinstance(source_obj[field], list):
+                 new_list = []
+                 for item in source_obj[field]:
+                     if isinstance(item, dict) and 'id' in item:
+                         new_list.append(item['id'])
+                     else:
+                         new_list.append(item)
+                 source_obj[field] = new_list
 
     # Process Expenses
     for exp in all_expenses:
         resolve_id(exp, 'currency', ref_currencies)
         resolve_id(exp, 'account', ref_accounts)
         
-        # Merge tags and simple_tags if needed, or just resolve both
-        # Sample shows simple_tags has the IDs.
-        resolve_list(exp, 'tags', ref_tags)
-        resolve_list(exp, 'simple_tags', ref_tags) 
-        # If simple_tags is the main one, maybe copy to tags? 
-        # Let's keep both resolved.
+        # Extract tags to linking table
+        extract_tags(exp, 'id', all_expense_tags, 'expense_id')
 
     # Process Assignments
     for asn in all_assignments:
         resolve_id(asn, 'expense_type', ref_expense_types)
-        resolve_list(asn, 'tags', ref_tags)
+        # Extract tags
+        extract_tags(asn, 'id', all_assignment_tags, 'assignment_id')
+    
+    # Process Expense Types (if they have tags)
+    # The refernece dict ref_expense_types values are the rows.
+    for et in ref_expense_types.values():
+         # Check if expense type has tags (not seen in sample, but requested)
+         extract_tags(et, 'id', all_expense_type_tags, 'expense_type_id')
 
     # 3. Load to BigQuery (Multiple Tables)
     try:
@@ -198,14 +218,18 @@ def import_expenses(request):
         load_table(TABLE_ID, all_expenses)
         load_table(f"{TABLE_ID}_assignments", all_assignments)
         
-        # Loading Ref tables is now optional if all IDs are replaced, 
-        # but good for completeness/audit.
+        # Linking Tables
+        load_table("expense_tags", all_expense_tags)
+        load_table("assignment_tags", all_assignment_tags)
+        load_table("expense_type_tags", all_expense_type_tags)
+
+        # Ref Tables
         load_table('currencies', list(ref_currencies.values()))
         load_table('tags', list(ref_tags.values()))
         load_table('expense_types', list(ref_expense_types.values()))
         load_table('accounts', list(ref_accounts.values()))
 
-        return f"Success: Loaded {len(all_expenses)} expenses and related tables.", 200
+        return f"Success: Loaded data with linking tables.", 200
 
     except Exception as e:
         print(f"BigQuery Load Error: {e}")
