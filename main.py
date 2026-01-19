@@ -20,79 +20,143 @@ def import_expenses(request):
 
     print("Starting data import task...")
 
-    # 1. Fetch Data from API
-    url = "https://api.quick.riport.co.hu/2/expenses"
+    # 1. Fetch References & Data from API
+    base_url = "https://api.quick.riport.co.hu/2/expenses"
     headers = {
-        "Authorization": f"Bearer {API_KEY}"  # Assuming Bearer token, or just raw key in header? User said "API key authentication".
-                                               # Adjusting to generic "api-key" header or similar if needed.
-                                               # Validating typical patterns; often header is 'x-api-key' or basic auth or bearer.
-                                               # Will assume 'Authorization: Bearer <KEY>' for now, but easily changeable.
+        "Authorization": f"Token {API_KEY}",
+        "Content-Type": "application/json"
     }
-    # If the user meant a specific header key:
-    # headers = {"X-Api-Key": API_KEY} or something similar.
-    # Defaulting to checking param support for simple auth.
+
+    # Data containers
+    all_expenses = []
+    all_assignments = []
     
-    # Let's try to pass it as a query param too if header fails, or just put it in a custom header. 
-    # NOTE: User didn't specify Header Name. I'll default to a Custom Header 'X-API-KEY' as it's common for such services, 
-    # but I'll add a comment to switch to Bearer if that's the standard.
-    
-    # REVISION: Common Quick Riport style might verify later. 
-    # Let's try standard requests with the key.
+    # Reference data (using dicts to deduplicate by ID across pages)
+    ref_currencies = {}
+    ref_tags = {}
+    ref_expense_types = {}
+    ref_accounts = {}
+
+    page = 1
+    page_size = 200
     
     try:
-        # Fetching data. 
-        # TODO: Does the API support paging? 
-        # If so, we'd need a loop. Assuming single page full dump for simplicity first.
-        response = requests.get(url, headers={"Authorization": f"{API_KEY}"}) # Often just the key string if not Bearer
-        response.raise_for_status()
-        data = response.json()
-        
-        # Determine if data is a list or wrapped in a key like {"expenses": [...]}
-        rows_to_insert = data
-        if isinstance(data, dict):
-             # Look for a likely list key
-             for key, val in data.items():
-                 if isinstance(val, list):
-                     rows_to_insert = val
-                     break
-        
-        if not isinstance(rows_to_insert, list):
-            print(f"Unexpected data format: {type(data)}")
-            return f"Error: Unexpected JSON format. keys: {data.keys() if isinstance(data, dict) else 'N/A'}", 500
+        while True:
+            print(f"Fetching page {page}...")
+            params = {
+                "page": page,
+                "page_size": page_size
+            }
+            
+            response = requests.get(base_url, headers=headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract Reference Data (if present on this page)
+            results_node = None
+            if isinstance(data, dict):
+                 if 'results' in data and isinstance(data['results'], dict):
+                     results_node = data['results']
+                 # Fallback for flat structure
+                 elif 'expenses' in data: 
+                     # If format is flat {expenses: [], currencies: []}
+                     results_node = data
+            
+            if results_node:
+                # Helper to update ref dicts
+                def update_refs(node, key, target_dict):
+                    if key in node and isinstance(node[key], list):
+                        for item in node[key]:
+                            if isinstance(item, dict) and 'id' in item:
+                                target_dict[item['id']] = item
 
-        print(f"Fetched {len(rows_to_insert)} records.")
-        
-        if len(rows_to_insert) == 0:
+                update_refs(results_node, 'currencies', ref_currencies)
+                update_refs(results_node, 'tags', ref_tags)
+                update_refs(results_node, 'expense_types', ref_expense_types)
+                update_refs(results_node, 'accounts', ref_accounts)
+
+            # Extract Expenses
+            rows_on_page = []
+            if results_node and 'expenses' in results_node and isinstance(results_node['expenses'], list):
+                rows_on_page = results_node['expenses']
+            elif isinstance(data, dict) and 'results' in data and isinstance(data['results'], list):
+                 # Old fallback
+                 rows_on_page = data['results']
+            
+            # Process this page's expenses
+            for expense in rows_on_page:
+                if not isinstance(expense, dict): continue
+                
+                # Extract Assignments
+                if 'assignments' in expense and isinstance(expense['assignments'], list):
+                    for assignment in expense['assignments']:
+                        if isinstance(assignment, dict):
+                            # Link back to expense
+                            assignment['expense_id'] = expense.get('id')
+                            all_assignments.append(assignment)
+                    
+                    # Remove assignments from expense dict to normalize
+                    del expense['assignments']
+                
+                all_expenses.append(expense)
+
+            count = len(rows_on_page)
+            print(f"Page {page}: Fetched {count} expenses.")
+            
+            if count < page_size:
+                break
+            
+            page += 1
+            if page > 1000:
+                print("Warning: Reached 1000 pages limit.")
+                break
+
+        print(f"Total Fetched: Expenses={len(all_expenses)}, Assignments={len(all_assignments)}")
+
+        if len(all_expenses) == 0:
             return "No data to insert.", 200
 
     except Exception as e:
         print(f"API Fetch Error: {e}")
         return f"API Fetch Error: {e}", 500
 
-    # 2. Load to BigQuery
+    # 2. Load to BigQuery (Multiple Tables)
     try:
         client = bigquery.Client()
         dataset_ref = client.dataset(DATASET_ID)
-        table_ref = dataset_ref.table(TABLE_ID)
-
-        job_config = bigquery.LoadJobConfig(
-            # Schema evolution: autodetect for now to handle new fields automatically
-            autodetect=True, 
-            # Replace the table content every time? 
-            # User wants "refreshed regularly". 
-            # Ideally we Append if we can filter by date, but without complex state management (watermarks),
-            # TRUNCATE (Overwrite) is the safest simple way to ensure data consistency with the source 
-            # if the source provides a full snapshot or movable window.
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-        )
-
-        job = client.load_table_from_json(rows_to_insert, table_ref, job_config=job_config)
         
-        job.result()  # Waits for the job to complete.
+        # Helper to load a list of dicts to a table
+        def load_table(table_name, rows, check_empty=True):
+            if check_empty and not rows:
+                print(f"Skipping {table_name} (no data).")
+                return
+            
+            print(f"Loading {len(rows)} rows into {table_name}...")
+            table_ref = dataset_ref.table(table_name)
+            job_config = bigquery.LoadJobConfig(
+                autodetect=True, 
+                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+            )
+            job = client.load_table_from_json(rows, table_ref, job_config=job_config)
+            job.result()
+            print(f"Success: Loaded {table_name}.")
 
-        print(f"Loaded {job.output_rows} rows into {DATASET_ID}.{TABLE_ID}.")
-        return f"Success: Loaded {job.output_rows} rows.", 200
+        # Load all tables
+        # User defined TABLE_ID for expenses, but we have multiple now. 
+        # We will use TABLE_ID for the main expenses table, and suffixes/names for others?
+        # Or just fixed names? User said "corresponding tables".
+        # Let's use fixed names typically, or derive from TABLE_ID.
+        # Default TABLE_ID is 'expenses'.
+        
+        load_table(TABLE_ID, all_expenses)
+        load_table(f"{TABLE_ID}_assignments", all_assignments) # e.g. expenses_assignments
+        load_table('currencies', list(ref_currencies.values()))
+        load_table('tags', list(ref_tags.values()))
+        load_table('expense_types', list(ref_expense_types.values()))
+        load_table('accounts', list(ref_accounts.values()))
+
+        return f"Success: Loaded {len(all_expenses)} expenses and related tables.", 200
 
     except Exception as e:
         print(f"BigQuery Load Error: {e}")
