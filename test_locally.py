@@ -92,6 +92,12 @@ def test_api_fetch():
                 print("Enriched Expense Currency:", exp.get('currency'))
                 print("Extracted Expense Tags (Linking Table):", all_expense_tags)
                 print("Original Object Tags (Should NOT be string):", exp.get('simple_tags'))
+                
+                if 'assignments' in exp and exp['assignments']:
+                    asn = exp['assignments'][0]
+                    print("Original Assignment Type:", asn.get('expense_type'))
+                    resolve_id(asn, 'expense_type', ref_expense_types)
+                    print("Enriched Assignment Type (Flattened):", asn.get('expense_type'))
             else:
                 print("No expenses.")
 

@@ -125,7 +125,6 @@ def import_expenses(request):
     
     # New containers for linking tables
     all_expense_tags = []
-    all_expense_type_tags = []
     all_assignment_tags = []
 
     def resolve_id(obj, field, ref_dict, target_field=None):
@@ -176,22 +175,21 @@ def import_expenses(request):
     for exp in all_expenses:
         resolve_id(exp, 'currency', ref_currencies)
         resolve_id(exp, 'account', ref_accounts)
+        # Expense might have expense_type too? Sample doesn't show it on top level, 
+        # but if it did, we'd resolve it.
+        # resolve_id(exp, 'expense_type', ref_expense_types)
         
         # Extract tags to linking table
         extract_tags(exp, 'id', all_expense_tags, 'expense_id')
 
     # Process Assignments
     for asn in all_assignments:
+        # Flatten expense_type (ID -> Name)
         resolve_id(asn, 'expense_type', ref_expense_types)
-        # Extract tags
+        
+        # Extract tags to linking table
         extract_tags(asn, 'id', all_assignment_tags, 'assignment_id')
     
-    # Process Expense Types (if they have tags)
-    # The refernece dict ref_expense_types values are the rows.
-    for et in ref_expense_types.values():
-         # Check if expense type has tags (not seen in sample, but requested)
-         extract_tags(et, 'id', all_expense_type_tags, 'expense_type_id')
-
     # 3. Load to BigQuery (Multiple Tables)
     try:
         client = bigquery.Client()
@@ -221,7 +219,6 @@ def import_expenses(request):
         # Linking Tables
         load_table("expense_tags", all_expense_tags)
         load_table("assignment_tags", all_assignment_tags)
-        load_table("expense_type_tags", all_expense_type_tags)
 
         # Ref Tables
         load_table('currencies', list(ref_currencies.values()))
