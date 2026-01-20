@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-PROJECT_ID="YOUR_PROJECT_ID"
+PROJECT_ID="quick-riport"
 REGION="europe-west1" # Choose a region close to you
 FUNCTION_NAME="quick-riport-loader"
 DATASET_ID="quick_riport_data"

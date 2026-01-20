@@ -12,18 +12,43 @@ Write-Host "Starting Deployment to Project: $PROJECT_ID in $REGION" -ForegroundC
 
 # 1. Create BigQuery Dataset if not exists
 Write-Host "1. Creating BigQuery Dataset ($DATASET_ID)..." -ForegroundColor Yellow
-try {
-    # Check if dataset exists prevents error
-    bq show "$PROJECT_ID`:$DATASET_ID" | Out-Null
-    Write-Host "   Dataset already exists." -ForegroundColor Green
-} catch {
-    # Attempt create
+
+# Function to find BQ executable
+function Get-BqCommand {
+    if (Get-Command bq -ErrorAction SilentlyContinue) {
+        return "bq"
+    }
+    # Try to find relative to gcloud
+    $gcloudPath = (Get-Command gcloud -ErrorAction SilentlyContinue).Source
+    if ($gcloudPath) {
+        $binDir = Split-Path -Parent $gcloudPath
+        $bqPath = Join-Path $binDir "bq.cmd"
+        if (Test-Path $bqPath) { return $bqPath }
+        $bqPathExe = Join-Path $binDir "bq.exe"
+        if (Test-Path $bqPathExe) { return $bqPathExe }
+    }
+    return $null
+}
+
+$BQ_CMD = Get-BqCommand
+
+if (-not $BQ_CMD) {
+    Write-Host "   WARNING: 'bq' command not found. Skipping dataset creation logic." -ForegroundColor Red
+    Write-Host "   Please ensure Google Cloud SDK is installed and 'bq' is in your PATH."
+    Write-Host "   (Restarting your terminal usually fixes this after install)."
+} else {
     try {
-        bq --location=$REGION mk -d --description "Data form Quick Riport" "$PROJECT_ID`:$DATASET_ID"
-        Write-Host "   Dataset created successfully." -ForegroundColor Green
+        # Check if dataset exists prevents error
+        & $BQ_CMD show "$PROJECT_ID`:$DATASET_ID" 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+             Write-Host "   Dataset already exists." -ForegroundColor Green
+        } else {
+             # Attempt create
+             & $BQ_CMD --location=$REGION mk -d --description "Data form Quick Riport" "$PROJECT_ID`:$DATASET_ID"
+             Write-Host "   Dataset created successfully." -ForegroundColor Green
+        }
     } catch {
-        Write-Host "   Error creating dataset (might already exist or permission issue): $_" -ForegroundColor Red
-        # Continue mostly safe if it exists
+        Write-Host "   Note: Could not verify dataset (Permission or path issue). Continuing..." -ForegroundColor Gray
     }
 }
 
@@ -37,12 +62,25 @@ gcloud functions deploy $FUNCTION_NAME `
     --source=. `
     --entry-point=import_expenses `
     --trigger-http `
-    --allow-unauthenticated `
+    --no-allow-unauthenticated `
     --set-env-vars BQ_DATASET_ID=$DATASET_ID `
-    --set-env-vars GCP_PROJECT=$PROJECT_ID 
+    --set-env-vars GCP_PROJECT=$PROJECT_ID `
+    --set-env-vars PYTHONUNBUFFERED=True 
     # --set-env-vars QUICK_RIPORT_API_KEY="YOUR_KEY" # Uncomment if not setting via Console
 
 Write-Host "   Cloud Function Deployment initiated..." -ForegroundColor Green
+
+# 2.5 Grant Invoker Permission
+Write-Host "`n2.5 Granting Invoker Permission to Service Account..." -ForegroundColor Yellow
+$SERVICE_ACCOUNT = "$PROJECT_ID@appspot.gserviceaccount.com"
+# For Gen 2 functions (Cloud Run), we need to grant roles/run.invoker
+# Correct command is 'gcloud run services add-iam-policy-binding'
+gcloud run services add-iam-policy-binding $FUNCTION_NAME `
+    --region=$REGION `
+    --member="serviceAccount:$SERVICE_ACCOUNT" `
+    --role="roles/run.invoker"
+
+Write-Host "   Permission granted to $SERVICE_ACCOUNT." -ForegroundColor Green
 
 # 3. Create Cloud Scheduler Job
 Write-Host "`n3. Creating Cloud Scheduler Job ($SCHEDULER_JOB_NAME)..." -ForegroundColor Yellow
@@ -53,7 +91,14 @@ Write-Host "   Target Function URL: $FUNCTION_URI" -ForegroundColor Cyan
 
 if ($FUNCTION_URI) {
     # Check if job exists to decide create or update
-    $JobExists = gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION 2>$null
+    $JobExists = $false
+    try {
+        gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION 2>$null | Out-Null
+        $JobExists = $true
+    } catch {
+        # Job does not exist, safe to ignore error
+        $JobExists = $false
+    }
     
     if ($JobExists) {
          Write-Host "   Updating existing job..."
@@ -62,7 +107,8 @@ if ($FUNCTION_URI) {
             --uri=$FUNCTION_URI `
             --http-method=GET `
             --location=$REGION `
-            --time-zone="Europe/Budapest"
+            --time-zone="Europe/Budapest" `
+            --oidc-service-account-email="$PROJECT_ID@appspot.gserviceaccount.com"
     } else {
          Write-Host "   Creating new job..."
          gcloud scheduler jobs create http $SCHEDULER_JOB_NAME `
@@ -70,7 +116,8 @@ if ($FUNCTION_URI) {
             --uri=$FUNCTION_URI `
             --http-method=GET `
             --location=$REGION `
-            --time-zone="Europe/Budapest"
+            --time-zone="Europe/Budapest" `
+            --oidc-service-account-email="$PROJECT_ID@appspot.gserviceaccount.com"
     }
     Write-Host "   Scheduler Job configured." -ForegroundColor Green
 } else {
