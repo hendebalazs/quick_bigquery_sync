@@ -3,6 +3,7 @@ import functions_framework
 import requests
 from google.cloud import bigquery
 from datetime import datetime
+import traceback
 
 # Environment Variables
 # These should be set in the Cloud Function configuration
@@ -14,9 +15,12 @@ PROJECT_ID = os.environ.get('GCP_PROJECT') # Automatically set by Cloud Function
 @functions_framework.http
 def import_expenses(request):
     """HTTP Cloud Function to fetch expenses and load to BigQuery."""
-    
-    if not API_KEY:
-        return "Internal Error: QUICK_RIPORT_API_KEY not configured", 500
+    try:
+        print("Starting execution...")
+        
+        if not API_KEY:
+            # Return as 200 OK so we can see the message in the browser/scheduler result
+            return "CONFIGURATION ERROR: QUICK_RIPORT_API_KEY is missing. Please set the environment variable.", 200
 
     print("Starting data import task...")
 
@@ -227,5 +231,6 @@ def import_expenses(request):
         return f"Success: Loaded data with linking tables.", 200
 
     except Exception as e:
-        print(f"BigQuery Load Error: {e}")
-        return f"BigQuery Load Error: {e}", 500
+        print(f"CRITICAL FAILURE: {e}")
+        traceback.print_exc()
+        return f"Execution/Load Error: {e}", 500
