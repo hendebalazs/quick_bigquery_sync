@@ -16,7 +16,7 @@ bq --location=$REGION mk -d --description "Data form Quick Riport" $PROJECT_ID:$
 echo "Deploying Cloud Function..."
 gcloud functions deploy $FUNCTION_NAME \
     --gen2 \
-    --runtime=python310 \
+    --runtime=python311 \
     --region=$REGION \
     --source=. \
     --entry-point=import_expenses \

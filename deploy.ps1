@@ -38,17 +38,22 @@ if (-not $BQ_CMD) {
     Write-Host "   (Restarting your terminal usually fixes this after install)."
 } else {
     try {
-        # Check if dataset exists prevents error
+        # Check if dataset exists
         & $BQ_CMD show "$PROJECT_ID`:$DATASET_ID" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
              Write-Host "   Dataset already exists." -ForegroundColor Green
         } else {
              # Attempt create
-             & $BQ_CMD --location=$REGION mk -d --description "Data form Quick Riport" "$PROJECT_ID`:$DATASET_ID"
-             Write-Host "   Dataset created successfully." -ForegroundColor Green
+             Write-Host "   Dataset not found. Attempting to create..." -ForegroundColor Gray
+             & $BQ_CMD --location=$REGION mk -d --description "Data form Quick Riport" "$PROJECT_ID`:$DATASET_ID" 2>&1 | Out-Null
+             if ($LASTEXITCODE -eq 0) {
+                Write-Host "   Dataset created successfully." -ForegroundColor Green
+             } else {
+                Write-Host "   Dataset creation skipped (might already exist or check failed). The Cloud Function will attempt auto-creation if needed." -ForegroundColor Gray
+             }
         }
     } catch {
-        Write-Host "   Note: Could not verify dataset (Permission or path issue). Continuing..." -ForegroundColor Gray
+        Write-Host "   Note: Dataset verification skipped (non-fatal). Deployment will continue." -ForegroundColor Gray
     }
 }
 
@@ -57,12 +62,14 @@ Write-Host "`n2. Deploying Cloud Function ($FUNCTION_NAME)..." -ForegroundColor 
 # Note: Using ` (backtick) for line continuation in PowerShell
 gcloud functions deploy $FUNCTION_NAME `
     --gen2 `
-    --runtime=python310 `
+    --runtime=python311 `
     --region=$REGION `
     --source=. `
     --entry-point=import_expenses `
     --trigger-http `
     --no-allow-unauthenticated `
+    --memory=512Mi `
+    --timeout=540s `
     --set-env-vars BQ_DATASET_ID=$DATASET_ID `
     --set-env-vars GCP_PROJECT=$PROJECT_ID `
     --set-env-vars PYTHONUNBUFFERED=True 

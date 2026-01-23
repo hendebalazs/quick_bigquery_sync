@@ -12,6 +12,8 @@ DATASET_ID = os.environ.get('BQ_DATASET_ID', 'quick_riport_data')
 TABLE_ID = os.environ.get('BQ_TABLE_ID', 'expenses')
 PROJECT_ID = os.environ.get('GCP_PROJECT') # Automatically set by Cloud Functions
 
+print("MODULE LOADED: Script starting initialization...", flush=True)
+
 @functions_framework.http
 def import_expenses(request):
     """HTTP Cloud Function to fetch expenses and load to BigQuery."""
