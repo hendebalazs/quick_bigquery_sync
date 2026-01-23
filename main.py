@@ -24,33 +24,33 @@ def import_expenses(request):
             # Return as 200 OK so we can see the message in the browser/scheduler result
             return "CONFIGURATION ERROR: QUICK_RIPORT_API_KEY is missing. Please set the environment variable.", 200
 
-    print("Starting data import task...")
+        print("Starting data import task...")
 
-    # 1. Fetch References & Data from API
-    base_url = "https://api.quick.riport.co.hu/2/expenses"
-    headers = {
-        "Authorization": f"Token {API_KEY}",
-        "Content-Type": "application/json"
-    }
+        # 1. Fetch References & Data from API
+        base_url = "https://api.quick.riport.co.hu/2/expenses"
+        headers = {
+            "Authorization": f"Token {API_KEY}",
+            "Content-Type": "application/json"
+        }
 
-    # Data containers
-    all_expenses = []
-    
-    # New containers for linking tables
-    all_expense_tags = []
-    all_assignment_tags = []
-    
-    # Reference data (using dicts to deduplicate by ID across pages)
-    ref_currencies = {}
-    ref_tags = {}
-    ref_expense_types = {}
-    ref_accounts = {}
+        # Data containers
+        all_expenses = []
+        all_assignments = []
+        
+        # New containers for linking tables
+        all_expense_tags = []
+        all_assignment_tags = []
+        
+        # Reference data (using dicts to deduplicate by ID across pages)
+        ref_currencies = {}
+        ref_tags = {}
+        ref_expense_types = {}
+        ref_accounts = {}
 
-    # Initial Request
-    next_url = "https://api.quick.riport.co.hu/2/expenses?page_size=200"
-    page_count = 0
-    
-    try:
+        # Initial Request
+        next_url = "https://api.quick.riport.co.hu/2/expenses?page_size=200"
+        page_count = 0
+        
         while next_url:
             page_count += 1
             print(f"Fetching page {page_count}... URL: {next_url}")
@@ -120,82 +120,55 @@ def import_expenses(request):
         if len(all_expenses) == 0:
             return "No data to insert.", 200
 
-    except Exception as e:
-        print(f"API Fetch Error: {e}")
-        return f"API Fetch Error: {e}", 500
-
-    # 2. Data Enrichment (ID Resolution Only - NO Tag Flattening)
-    print("Enriching data (resolving IDs to names)...")
-    
-    # New containers for linking tables
-    all_expense_tags = []
-    all_assignment_tags = []
-
-    def resolve_id(obj, field, ref_dict, target_field=None):
-        """Replaces ID in 'field' with name from 'ref_dict'."""
-        if field in obj and obj[field] is not None:
-            ref_id = obj[field]
-            if ref_id in ref_dict:
-                obj[target_field or field] = ref_dict[ref_id].get('name')
-
-    # Helper to extract tags to a linking table
-    def extract_tags(source_obj, source_id_field, target_list, id_field_name):
-        # Expenses have 'tags' and 'simple_tags'. Assignments have 'tags'.
-        # We need to consolidate.
-        tags_found = set()
+        # 2. Data Enrichment (ID Resolution Only - NO Tag Flattening)
+        print("Enriching data (resolving IDs to names)...")
         
-        for field in ['tags', 'simple_tags']:
-            if field in source_obj and isinstance(source_obj[field], list):
-                for item in source_obj[field]:
-                    # item could be ID or dict
-                    tag_id = item
-                    if isinstance(item, dict) and 'id' in item:
-                        tag_id = item['id']
-                    
-                    if tag_id not in tags_found and source_obj.get(source_id_field):
-                         tags_found.add(tag_id)
-                         target_list.append({
-                             id_field_name: source_obj[source_id_field],
-                             'tag_id': tag_id
-                         })
-        
-        # Cleanup original tag fields from source to keep it clean? 
-        # User said "tags should not be flattened". Keeping them as arrays of IDs or removing?
-        # Usually if we have a linking table, we remove the array from the main table or keep it as is.
-        # Let's keep the original arrays (as list of integers) to be safe, but NOT flatten them to strings.
-        # But we must ensure bigquery generic loader handles list of ints? Yes (REPEATED INTEGER).
-        # We should ensure they are lists of simple IDs for consistency.
-        for field in ['tags', 'simple_tags']:
-            if field in source_obj and isinstance(source_obj[field], list):
-                 new_list = []
-                 for item in source_obj[field]:
-                     if isinstance(item, dict) and 'id' in item:
-                         new_list.append(item['id'])
-                     else:
-                         new_list.append(item)
-                 source_obj[field] = new_list
+        def resolve_id(obj, field, ref_dict, target_field=None):
+            """Replaces ID in 'field' with name from 'ref_dict'."""
+            if field in obj and obj[field] is not None:
+                ref_id = obj[field]
+                if ref_id in ref_dict:
+                    obj[target_field or field] = ref_dict[ref_id].get('name')
 
-    # Process Expenses
-    for exp in all_expenses:
-        resolve_id(exp, 'currency', ref_currencies)
-        resolve_id(exp, 'account', ref_accounts)
-        # Expense might have expense_type too? Sample doesn't show it on top level, 
-        # but if it did, we'd resolve it.
-        # resolve_id(exp, 'expense_type', ref_expense_types)
-        
-        # Extract tags to linking table
-        extract_tags(exp, 'id', all_expense_tags, 'expense_id')
+        # Helper to extract tags to a linking table
+        def extract_tags(source_obj, source_id_field, target_list, id_field_name):
+            tags_found = set()
+            for field in ['tags', 'simple_tags']:
+                if field in source_obj and isinstance(source_obj[field], list):
+                    for item in source_obj[field]:
+                        tag_id = item
+                        if isinstance(item, dict) and 'id' in item:
+                            tag_id = item['id']
+                        
+                        if tag_id not in tags_found and source_obj.get(source_id_field):
+                             tags_found.add(tag_id)
+                             target_list.append({
+                                 id_field_name: source_obj[source_id_field],
+                                 'tag_id': tag_id
+                             })
+            
+            for field in ['tags', 'simple_tags']:
+                if field in source_obj and isinstance(source_obj[field], list):
+                     new_list = []
+                     for item in source_obj[field]:
+                         if isinstance(item, dict) and 'id' in item:
+                             new_list.append(item['id'])
+                         else:
+                             new_list.append(item)
+                     source_obj[field] = new_list
 
-    # Process Assignments
-    for asn in all_assignments:
-        # Flatten expense_type (ID -> Name)
-        resolve_id(asn, 'expense_type', ref_expense_types)
+        # Process Expenses
+        for exp in all_expenses:
+            resolve_id(exp, 'currency', ref_currencies)
+            resolve_id(exp, 'account', ref_accounts)
+            extract_tags(exp, 'id', all_expense_tags, 'expense_id')
+
+        # Process Assignments
+        for asn in all_assignments:
+            resolve_id(asn, 'expense_type', ref_expense_types)
+            extract_tags(asn, 'id', all_assignment_tags, 'assignment_id')
         
-        # Extract tags to linking table
-        extract_tags(asn, 'id', all_assignment_tags, 'assignment_id')
-    
-    # 3. Load to BigQuery (Multiple Tables)
-    try:
+        # 3. Load to BigQuery (Multiple Tables)
         client = bigquery.Client()
         dataset_ref = client.dataset(DATASET_ID)
         
@@ -219,12 +192,8 @@ def import_expenses(request):
         # Load tables
         load_table(TABLE_ID, all_expenses)
         load_table(f"{TABLE_ID}_assignments", all_assignments)
-        
-        # Linking Tables
         load_table("expense_tags", all_expense_tags)
         load_table("assignment_tags", all_assignment_tags)
-
-        # Ref Tables
         load_table('currencies', list(ref_currencies.values()))
         load_table('tags', list(ref_tags.values()))
         load_table('expense_types', list(ref_expense_types.values()))
