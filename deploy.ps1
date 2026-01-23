@@ -96,6 +96,14 @@ gcloud run services add-iam-policy-binding $FUNCTION_NAME `
 
 Write-Host "   Permission granted to $SERVICE_ACCOUNT." -ForegroundColor Green
 
+# 2.6 Grant BigQuery Permissions
+Write-Host "`n2.6 Granting BigQuery Admin Permission to Service Account..." -ForegroundColor Yellow
+gcloud projects add-iam-policy-binding $PROJECT_ID `
+    --member="serviceAccount:$SERVICE_ACCOUNT" `
+    --role="roles/bigquery.admin"
+
+Write-Host "   BigQuery permissions granted." -ForegroundColor Green
+
 # 3. Create Cloud Scheduler Job
 Write-Host "`n3. Creating Cloud Scheduler Job ($SCHEDULER_JOB_NAME)..." -ForegroundColor Yellow
 
