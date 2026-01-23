@@ -137,3 +137,5 @@ if ($FUNCTION_URI) {
 }
 
 Write-Host "`nDeployment Complete!" -ForegroundColor Green
+Write-Host "To test the pipeline manually, run:" -ForegroundColor Cyan
+Write-Host "gcloud scheduler jobs run $SCHEDULER_JOB_NAME --project=$PROJECT_ID --location=$REGION" -ForegroundColor White

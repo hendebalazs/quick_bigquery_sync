@@ -80,3 +80,13 @@ This solution is designed to fit comfortably within the Google Cloud Free Tier p
 *   **BigQuery**: Stores the data. Tables are auto-created and **overwritten** (Snapshot strategy) on each run.
 *   **Cloud Scheduler**: Triggers the function every 4 hours.
 
+## Manual Testing & Verification
+
+To verify the pipeline immediately, run this command in PowerShell:
+
+```powershell
+gcloud scheduler jobs run quick_riport_cron --project=quick-riport --location=europe-west1
+```
+
+Replace `quick-riport` with your actual Project ID if different. This command triggers the scheduler job, which in turn authenticates and calls the Cloud Function.
+
