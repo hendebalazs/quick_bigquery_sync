@@ -21,8 +21,9 @@ def import_expenses(request):
         print("Starting execution...")
         
         if not API_KEY:
-            # Return as 200 OK so we can see the message in the browser/scheduler result
-            return "CONFIGURATION ERROR: QUICK_RIPORT_API_KEY is missing. Please set the environment variable.", 200
+            msg = "!!! CONFIGURATION ERROR: QUICK_RIPORT_API_KEY environment variable is missing or empty !!!"
+            print(msg, flush=True)
+            return msg, 400
 
         print("Starting data import task...")
 
