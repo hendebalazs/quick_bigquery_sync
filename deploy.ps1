@@ -39,13 +39,13 @@ if (-not $BQ_CMD) {
 } else {
     try {
         # Check if dataset exists
-        & $BQ_CMD show "$PROJECT_ID`:$DATASET_ID" 2>&1 | Out-Null
+        & $BQ_CMD --project=$PROJECT_ID show "$DATASET_ID" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
              Write-Host "   Dataset already exists." -ForegroundColor Green
         } else {
              # Attempt create
              Write-Host "   Dataset not found. Attempting to create..." -ForegroundColor Gray
-             & $BQ_CMD --location=$REGION mk -d --description "Data form Quick Riport" "$PROJECT_ID`:$DATASET_ID" 2>&1 | Out-Null
+             & $BQ_CMD --project=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" "$DATASET_ID" 2>&1 | Out-Null
              if ($LASTEXITCODE -eq 0) {
                 Write-Host "   Dataset created successfully." -ForegroundColor Green
              } else {
@@ -61,6 +61,7 @@ if (-not $BQ_CMD) {
 Write-Host "`n2. Deploying Cloud Function ($FUNCTION_NAME)..." -ForegroundColor Yellow
 # Note: Using ` (backtick) for line continuation in PowerShell
 gcloud functions deploy $FUNCTION_NAME `
+    --project=$PROJECT_ID `
     --gen2 `
     --runtime=python311 `
     --region=$REGION `
@@ -83,6 +84,7 @@ $SERVICE_ACCOUNT = "$PROJECT_ID@appspot.gserviceaccount.com"
 # For Gen 2 functions (Cloud Run), we need to grant roles/run.invoker
 # Correct command is 'gcloud run services add-iam-policy-binding'
 gcloud run services add-iam-policy-binding $FUNCTION_NAME `
+    --project=$PROJECT_ID `
     --region=$REGION `
     --member="serviceAccount:$SERVICE_ACCOUNT" `
     --role="roles/run.invoker"
@@ -93,14 +95,14 @@ Write-Host "   Permission granted to $SERVICE_ACCOUNT." -ForegroundColor Green
 Write-Host "`n3. Creating Cloud Scheduler Job ($SCHEDULER_JOB_NAME)..." -ForegroundColor Yellow
 
 # Fetch the function URL first
-$FUNCTION_URI = gcloud functions describe $FUNCTION_NAME --region=$REGION --format='value(serviceConfig.uri)'
+$FUNCTION_URI = gcloud functions describe $FUNCTION_NAME --project=$PROJECT_ID --region=$REGION --format='value(serviceConfig.uri)'
 Write-Host "   Target Function URL: $FUNCTION_URI" -ForegroundColor Cyan
 
 if ($FUNCTION_URI) {
     # Check if job exists to decide create or update
     $JobExists = $false
     try {
-        gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location=$REGION 2>$null | Out-Null
+        gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --project=$PROJECT_ID --location=$REGION 2>$null | Out-Null
         $JobExists = $true
     } catch {
         # Job does not exist, safe to ignore error
@@ -110,6 +112,7 @@ if ($FUNCTION_URI) {
     if ($JobExists) {
          Write-Host "   Updating existing job..."
          gcloud scheduler jobs update http $SCHEDULER_JOB_NAME `
+            --project=$PROJECT_ID `
             --schedule="0 */4 * * *" `
             --uri=$FUNCTION_URI `
             --http-method=GET `
@@ -119,6 +122,7 @@ if ($FUNCTION_URI) {
     } else {
          Write-Host "   Creating new job..."
          gcloud scheduler jobs create http $SCHEDULER_JOB_NAME `
+            --project=$PROJECT_ID `
             --schedule="0 */4 * * *" `
             --uri=$FUNCTION_URI `
             --http-method=GET `

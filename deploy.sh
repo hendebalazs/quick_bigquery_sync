@@ -10,11 +10,12 @@ SCHEDULER_JOB_NAME="quick_riport_cron"
 
 # 1. Create BigQuery Dataset if not exists
 echo "Creating BigQuery Dataset..."
-bq --location=$REGION mk -d --description "Data form Quick Riport" $PROJECT_ID:$DATASET_ID
+bq --project=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" $DATASET_ID
 
 # 2. Deploy Cloud Function
 echo "Deploying Cloud Function..."
 gcloud functions deploy $FUNCTION_NAME \
+    --project=$PROJECT_ID \
     --gen2 \
     --runtime=python311 \
     --region=$REGION \
@@ -31,9 +32,11 @@ gcloud functions deploy $FUNCTION_NAME \
 echo "Creating Cloud Scheduler Job..."
 # This example uses an HTTP trigger to the function URL. 
 # You need to get the function URL first.
-FUNCTION_URI=$(gcloud functions describe $FUNCTION_NAME --region=$REGION --format='value(serviceConfig.uri)')
+# Fetch the function URL first
+FUNCTION_URI=$(gcloud functions describe $FUNCTION_NAME --project=$PROJECT_ID --region=$REGION --format='value(serviceConfig.uri)')
 
 gcloud scheduler jobs create http $SCHEDULER_JOB_NAME \
+    --project=$PROJECT_ID \
     --schedule="0 */4 * * *" \
     --uri=$FUNCTION_URI \
     --http-method=GET \
