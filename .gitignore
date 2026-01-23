@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Google Cloud
+auth.json
+
+# Local Settings
+local_settings.ps1
+
+# Editor
+.vscode/
+*.code-workspace

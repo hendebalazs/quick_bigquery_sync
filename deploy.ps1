@@ -62,8 +62,38 @@ if (-not $BQ_CMD) {
 }
 
 
+# 1.5 Handle API Key Security
+Write-Host "`n1.5 Checking for API Key..." -ForegroundColor Yellow
+$API_KEY_TO_DEPLOY = $null
+
+# Priority 1: Check if already set in current shell environment
+if ($env:QUICK_RIPORT_API_KEY) {
+    $API_KEY_TO_DEPLOY = $env:QUICK_RIPORT_API_KEY
+    Write-Host "   Found API Key in environment variables." -ForegroundColor Green
+}
+# Priority 2: Check for a local git-ignored settings file
+elseif (Test-Path "local_settings.ps1") {
+    . ./local_settings.ps1
+    if ($QUICK_RIPORT_API_KEY) {
+        $API_KEY_TO_DEPLOY = $QUICK_RIPORT_API_KEY
+        Write-Host "   Found API Key in local_settings.ps1." -ForegroundColor Green
+    }
+}
+
+if (-not $API_KEY_TO_DEPLOY) {
+    Write-Host "   WARNING: QUICK_RIPORT_API_KEY not found." -ForegroundColor Red
+    Write-Host "   The Cloud Function will be deployed with its EXISTING key (if any)."
+    Write-Host "   To set it securely, run: `$env:QUICK_RIPORT_API_KEY='your_key_here'` before running this script."
+}
+
 # 2. Deploy Cloud Function
 Write-Host "`n2. Deploying Cloud Function ($FUNCTION_NAME)..." -ForegroundColor Yellow
+# Build environment variables list
+$ENV_VARS = "BQ_DATASET_ID=$DATASET_ID,GCP_PROJECT=$PROJECT_ID,PYTHONUNBUFFERED=True"
+if ($API_KEY_TO_DEPLOY) {
+    $ENV_VARS += ",QUICK_RIPORT_API_KEY=$API_KEY_TO_DEPLOY"
+}
+
 # Note: Using ` (backtick) for line continuation in PowerShell
 gcloud functions deploy $FUNCTION_NAME `
     --project=$PROJECT_ID `
@@ -76,10 +106,7 @@ gcloud functions deploy $FUNCTION_NAME `
     --no-allow-unauthenticated `
     --memory=512Mi `
     --timeout=540s `
-    --set-env-vars BQ_DATASET_ID=$DATASET_ID `
-    --set-env-vars GCP_PROJECT=$PROJECT_ID `
-    --set-env-vars PYTHONUNBUFFERED=True 
-    # --set-env-vars QUICK_RIPORT_API_KEY="YOUR_KEY" # Uncomment if not setting via Console
+    --set-env-vars $ENV_VARS
 
 Write-Host "   Cloud Function Deployment initiated..." -ForegroundColor Green
 

@@ -16,7 +16,18 @@ This project contains a Google Cloud Function to fetch expenses from Quick Ripor
 
 1.  **Clone/Open this repository**.
 2.  **Set your API Key**:
-    You need to set your Quick Riport API Key in the environment variables for deployment.
+    To avoid pushing your secret key to GitHub, do **NOT** hardcode it in `deploy.ps1`.
+    
+    You have two secure options:
+    *   **Option A (Temporary)**: Run this in your PowerShell before deploying:
+        ```powershell
+        $env:QUICK_RIPORT_API_KEY = "your_actual_key_here"
+        ```
+    *   **Option B (Persistent/Local)**: Create a file named `local_settings.ps1` in this folder:
+        ```powershell
+        $QUICK_RIPORT_API_KEY = "your_actual_key_here"
+        ```
+        *(Note: This file is automatically ignored by Git and will not be pushed.)*
 
 ## Local Testing
 
