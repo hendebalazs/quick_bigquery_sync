@@ -10,7 +10,7 @@ SCHEDULER_JOB_NAME="quick_riport_cron"
 
 # 1. Create BigQuery Dataset if not exists
 echo "Creating BigQuery Dataset..."
-bq --project=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" $DATASET_ID
+bq --project_id=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" $DATASET_ID
 
 # 2. Deploy Cloud Function
 echo "Deploying Cloud Function..."

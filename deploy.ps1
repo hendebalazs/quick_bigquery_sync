@@ -37,25 +37,30 @@ if (-not $BQ_CMD) {
     Write-Host "   Please ensure Google Cloud SDK is installed and 'bq' is in your PATH."
     Write-Host "   (Restarting your terminal usually fixes this after install)."
 } else {
-    try {
-        # Check if dataset exists
-        & $BQ_CMD --project=$PROJECT_ID show "$DATASET_ID" 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-             Write-Host "   Dataset already exists." -ForegroundColor Green
-        } else {
-             # Attempt create
-             Write-Host "   Dataset not found. Attempting to create..." -ForegroundColor Gray
-             & $BQ_CMD --project=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" "$DATASET_ID" 2>&1 | Out-Null
+    # Check if dataset exists
+    Write-Host "   Checking for dataset $DATASET_ID..." -ForegroundColor Gray
+    $bq_show_res = & $BQ_CMD --project_id=$PROJECT_ID show "$DATASET_ID" 2>&1
+    
+    if ($LASTEXITCODE -eq 0) {
+         Write-Host "   Dataset already exists." -ForegroundColor Green
+    } else {
+         # Attempt create if verification failed with "Not found"
+         if ($bq_show_res -match "Not found") {
+             Write-Host "   Dataset not found. Attempting to create..." -ForegroundColor Yellow
+             & $BQ_CMD --project_id=$PROJECT_ID --location=$REGION mk -d --description "Data form Quick Riport" "$DATASET_ID" 2>&1 | Out-Null
              if ($LASTEXITCODE -eq 0) {
                 Write-Host "   Dataset created successfully." -ForegroundColor Green
              } else {
-                Write-Host "   Dataset creation skipped (might already exist or check failed). The Cloud Function will attempt auto-creation if needed." -ForegroundColor Gray
+                Write-Host "   Dataset creation attempt failed. The Cloud Function might attempt auto-creation if it has permissions." -ForegroundColor Red
              }
-        }
-    } catch {
-        Write-Host "   Note: Dataset verification skipped (non-fatal). Deployment will continue." -ForegroundColor Gray
+         } else {
+             Write-Host "   Warning: Dataset verification check returned an error. Please check your permissions or if the Project ID is correct." -ForegroundColor Red
+             Write-Host "   Error: $bq_show_res" -ForegroundColor Gray
+             Write-Host "   Continuing with deployment anyway..." -ForegroundColor Gray
+         }
     }
 }
+
 
 # 2. Deploy Cloud Function
 Write-Host "`n2. Deploying Cloud Function ($FUNCTION_NAME)..." -ForegroundColor Yellow
