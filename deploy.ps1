@@ -112,7 +112,18 @@ Write-Host "   Cloud Function Deployment initiated..." -ForegroundColor Green
 
 # 2.5 Grant Invoker Permission
 Write-Host "`n2.5 Granting Invoker Permission to Service Account..." -ForegroundColor Yellow
-$SERVICE_ACCOUNT = "$PROJECT_ID@appspot.gserviceaccount.com"
+
+# Dynamically fetch the service account email used by the function
+$FUNCTION_INFO = gcloud functions describe $FUNCTION_NAME --project=$PROJECT_ID --region=$REGION --format="json" | ConvertFrom-Json
+$SERVICE_ACCOUNT = $FUNCTION_INFO.serviceConfig.serviceAccountEmail
+
+if (-not $SERVICE_ACCOUNT) {
+    Write-Host "   WARNING: Could not fetch service account email from function. Falling back to default appspot account." -ForegroundColor Gray
+    $SERVICE_ACCOUNT = "$PROJECT_ID@appspot.gserviceaccount.com"
+}
+
+Write-Host "   Detected Service Account: $SERVICE_ACCOUNT" -ForegroundColor Cyan
+
 # For Gen 2 functions (Cloud Run), we need to grant roles/run.invoker
 # Correct command is 'gcloud run services add-iam-policy-binding'
 gcloud run services add-iam-policy-binding $FUNCTION_NAME `
@@ -129,7 +140,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID `
     --member="serviceAccount:$SERVICE_ACCOUNT" `
     --role="roles/bigquery.admin"
 
-Write-Host "   BigQuery permissions granted." -ForegroundColor Green
+Write-Host "   BigQuery permissions granted to $SERVICE_ACCOUNT." -ForegroundColor Green
 
 # 3. Create Cloud Scheduler Job
 Write-Host "`n3. Creating Cloud Scheduler Job ($SCHEDULER_JOB_NAME)..." -ForegroundColor Yellow
