@@ -102,6 +102,7 @@ if ($env:HC_PING_GCP_QUICK_RIPORT_SYNC) {
 
 # Note: Using ` (backtick) for line continuation in PowerShell
 gcloud functions deploy $FUNCTION_NAME `
+    --format=none `
     --project=$PROJECT_ID `
     --gen2 `
     --runtime=python311 `
@@ -133,6 +134,7 @@ Write-Host "   Detected Service Account: $SERVICE_ACCOUNT" -ForegroundColor Cyan
 # For Gen 2 functions (Cloud Run), we need to grant roles/run.invoker
 # Correct command is 'gcloud run services add-iam-policy-binding'
 gcloud run services add-iam-policy-binding $FUNCTION_NAME `
+    --format=none `
     --project=$PROJECT_ID `
     --region=$REGION `
     --member="serviceAccount:$SERVICE_ACCOUNT" `
@@ -143,6 +145,7 @@ Write-Host "   Permission granted to $SERVICE_ACCOUNT." -ForegroundColor Green
 # 2.6 Grant BigQuery Permissions
 Write-Host "`n2.6 Granting BigQuery Admin Permission to Service Account..." -ForegroundColor Yellow
 gcloud projects add-iam-policy-binding $PROJECT_ID `
+    --format=none `
     --member="serviceAccount:$SERVICE_ACCOUNT" `
     --role="roles/bigquery.admin"
 
@@ -169,6 +172,7 @@ if ($FUNCTION_URI) {
     if ($JobExists) {
          Write-Host "   Updating existing job..."
          gcloud scheduler jobs update http $SCHEDULER_JOB_NAME `
+            --format=none `
             --project=$PROJECT_ID `
             --schedule="0 */4 * * *" `
             --uri=$FUNCTION_URI `
@@ -179,6 +183,7 @@ if ($FUNCTION_URI) {
     } else {
          Write-Host "   Creating new job..."
          gcloud scheduler jobs create http $SCHEDULER_JOB_NAME `
+            --format=none `
             --project=$PROJECT_ID `
             --schedule="0 */4 * * *" `
             --uri=$FUNCTION_URI `
