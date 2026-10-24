@@ -1,4 +1,5 @@
 import os
+import urllib.request
 import functions_framework
 import requests
 from google.cloud import bigquery
@@ -14,9 +15,36 @@ PROJECT_ID = os.environ.get('GCP_PROJECT') # Automatically set by Cloud Function
 
 print("MODULE LOADED: Script starting initialization...", flush=True)
 
+
+def _heartbeat(ok: bool, body: str = "") -> None:
+    """Jelzés a Szuperszónikus Healthchecks-figyelőjének (szuperszonikus-infra, monitoring/healthchecks).
+
+    Sikernél siker, egyébként /fail a válasz elejével. Ha a jelzés elmarad (a Scheduler nem hív), a figyelő
+    riaszt. Az URL a HC_PING_GCP_QUICK_RIPORT_SYNC env-ben; ha nincs beállítva, nem jelez. A jelzés hibája a futást nem érinti.
+    """
+    url = os.getenv("HC_PING_GCP_QUICK_RIPORT_SYNC", "").strip()
+    if not url:
+        return
+    try:
+        data = None if ok else body[:2000].encode("utf-8")
+        urllib.request.urlopen(url if ok else url + "/fail", data=data, timeout=8).read()
+    except Exception as exc:  # noqa: BLE001 - a jelzés hibája nem buktatja el a futást
+        print(f"heartbeat: {exc}", flush=True)
+
+
 @functions_framework.http
 def import_expenses(request):
-    """HTTP Cloud Function to fetch expenses and load to BigQuery."""
+    """HTTP Cloud Function: a betöltés, utána a jelzés a figyelőnek (200 = siker)."""
+    body, status = "", 500
+    try:
+        body, status = _import_expenses(request)
+        return body, status
+    finally:
+        _heartbeat(status == 200, str(body))
+
+
+def _import_expenses(request):
+    """Fetch expenses and load to BigQuery."""
     try:
         print("Starting execution...")
         

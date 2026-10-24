@@ -93,6 +93,12 @@ $ENV_VARS = "BQ_DATASET_ID=$DATASET_ID,GCP_PROJECT=$PROJECT_ID,PYTHONUNBUFFERED=
 if ($API_KEY_TO_DEPLOY) {
     $ENV_VARS += ",QUICK_RIPORT_API_KEY=$API_KEY_TO_DEPLOY"
 }
+if ($env:HC_PING_GCP_QUICK_RIPORT_SYNC) {
+    $ENV_VARS += ",HC_PING_GCP_QUICK_RIPORT_SYNC=$($env:HC_PING_GCP_QUICK_RIPORT_SYNC.Trim())"
+} else {
+    Write-Host "   WARNING: HC_PING_GCP_QUICK_RIPORT_SYNC hianyzik, a Healthchecks-jelzes kimarad. Futtatas az infra-repo futtat-javal:" -ForegroundColor Red
+    Write-Host '   & "C:\Git repos\szuperszonikus-infra\bitwarden\infra-titkok.ps1" futtat HC_PING_GCP_QUICK_RIPORT_SYNC=HC_PING_GCP_QUICK_RIPORT_SYNC powershell -File deploy.ps1' -ForegroundColor Gray
+}
 
 # Note: Using ` (backtick) for line continuation in PowerShell
 gcloud functions deploy $FUNCTION_NAME `
