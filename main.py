@@ -1,3 +1,4 @@
+import json
 import os
 import urllib.request
 import functions_framework
@@ -32,6 +33,14 @@ def _heartbeat(ok: bool, body: str = "") -> None:
         print(f"heartbeat: {exc}", flush=True)
 
 
+def _hibanaplo(uzenet: str) -> None:
+    """A hibát ERROR szintű naplósorként is kiírja: egysoros JSON a stdout-on, severity és message mezővel, ezt a
+    Cloud Run (Gen2) strukturált naplóként veszi fel. Így a Szuperszónikus log-gyűjtője (szuperszonikus-infra,
+    monitoring/log-gyujto, severity >= ERROR) a hiba szövegét is begyűjti. A sima print és a traceback csak
+    DEFAULT szintű sor, azt a gyűjtő nem látja (2026-11-17)."""
+    print(json.dumps({"severity": "ERROR", "message": uzenet}, ensure_ascii=False), flush=True)
+
+
 @functions_framework.http
 def import_expenses(request):
     """HTTP Cloud Function: a betöltés, utána a jelzés a figyelőnek (200 = siker)."""
@@ -40,6 +49,8 @@ def import_expenses(request):
         body, status = _import_expenses(request)
         return body, status
     finally:
+        if status != 200:
+            _hibanaplo(f"A szinkron hibával zárult (HTTP {status}): {str(body)[:2000]}")
         _heartbeat(status == 200, str(body))
 
 
